@@ -8,7 +8,7 @@ class Plant:
         products: int,      # Number of products
         crude_ratios: list[list[float]],
         refine_caps: list[float],
-        product_ratios: list[list[float]],
+        product_ratios: list[list[float]],  # indexed by outputs then intermediates
         crude_light_price: list[float],
         crude_heavy_price: list[float],
         stages: int,
