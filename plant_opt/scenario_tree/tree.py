@@ -34,6 +34,9 @@ class Node:
     def __hash__(self):
         return self.name.__hash__()
 
+    def detail_str(self):
+        return f"Node({self.name}, {self.parent.name if self.parent else None}, {self.stage}, {self.values})"
+
 
 class RandomStrategy(Enum):
     RANDOM_WALK = auto()
