@@ -86,15 +86,15 @@ def random_walk_tree_builder(
 
                     child.values[var] = new_val
 
-                print(f"Adding child ({child.name}) to parent={node.name}")
+                # print(f"Adding child ({child.name}) to parent={node.name}")
                 node.add_child(child)
-                print(f"Now has children: {[c.name for c in node.children]}")
+                # print(f"Now has children: {[c.name for c in node.children]}")
                 next_nodes.append(child)
                 all_nodes.append(child)
 
         current_nodes = next_nodes
 
-    print(f"Root node: {root} has children {root.children}")
+    # print(f"Root node: {root} has children {root.children}")
     return root, all_nodes
 
 
