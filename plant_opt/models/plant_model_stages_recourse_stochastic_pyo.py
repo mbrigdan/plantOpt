@@ -348,7 +348,7 @@ def main():
     p = Plant(
         crude_distil_cap=1000,
         products=3,
-        crude_ratios=[[3, 1, 0], [1, 2, 1], [0, 1, 2]],
+        crude_ratios=[[3, 1], [1, 2], [0, 1]],
         refine_caps=[1000, 1000, 1000],
         product_ratios=[
             [2, 1, 0.0],  # Amount of light product from l/m/h intermediates
@@ -367,6 +367,9 @@ def main():
     print(results)
 
     pprint(p.model)
+
+    print(f"Light Import:{pmo.value(p.model.light_crude_import[root])}")
+    print(f"Heavy Import:{pmo.value(p.model.heavy_crude_import[root])}")
 
 
 if __name__ == "__main__":
