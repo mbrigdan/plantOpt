@@ -45,6 +45,26 @@ def build_recourse_var(var_dict: dict, domain_const_list: list, root: Node, leng
             nodes_to_process.append(child)
 
 
+def calculate_node_objective(m, node):
+    node_val = 0
+    for output in m.outputs:
+        node_val += m.prod_full_price[node][output] * node.values[f"prod_price_{output}"]
+    node_val -= m.light_crude_import[node.parent] * node.values["crude_light_price"]
+    node_val -= m.heavy_crude_import[node.parent] * node.values["crude_heavy_price"]
+
+    return node_val
+
+
+def calculate_node_objective_recursive(m, node):
+    if node.parent is None:
+        # Don't calculate objective value at the root node, as the values at its children will use the import costs from it already
+        return 0
+
+    node_val = calculate_node_objective(m, node)
+
+    return node_val + calculate_node_objective_recursive(m, node.parent)
+
+
 class Plant:
     def __init__(
         self,
@@ -57,6 +77,12 @@ class Plant:
         scenario_tree_root: Node,
         scenario_tree_all_nodes: list[Node],
         allowed_output_change: float,
+        cvar: (
+            tuple[float, float] | None
+        ) = None,  # beta, weight for CVaR objective term (applied to each node value)
+        chance: (
+            tuple[float, float] | None
+        ) = None,  # cutoff value, portion for chance constraint, only portion of outcomes are allowed to be below the cutoff
     ):
         self.stages = list(range(0, stages))
         self.nodes = scenario_tree_all_nodes
@@ -240,6 +266,7 @@ class Plant:
             )
 
         node_value_list = []
+        unscaled_node_value_list = []
 
         stage_node_count = defaultdict(int)
         for node in scenario_tree_all_nodes:
@@ -259,8 +286,35 @@ class Plant:
             node_val -= self.heavy_crude_import[node.parent] * node.values["crude_heavy_price"]
 
             node_value_list.append(node_val / stage_node_count[node.stage])
+            unscaled_node_value_list.append(node_val)
 
-        self.obj = cp.Maximize(sum(node_value_list))
+        terminal_nodes = [node for node in scenario_tree_all_nodes if node.stage == stages - 1]
+        self.terminal_values = {}
+        for node in terminal_nodes:
+            self.terminal_values[node] = calculate_node_objective_recursive(self, node)
+
+        if cvar:
+            cvar_term = cp.cvar(-cp.hstack(self.terminal_values.values()), cvar[0]) * cvar[1]
+        else:
+            cvar_term = 0
+
+        if chance:
+            # Node values - offset
+            n = len(self.terminal_values.values())
+            self.b = cp.Variable(n, boolean=True)
+            self.offset_mask = cp.Variable(n, nonneg=True)
+
+            values = cp.hstack(self.terminal_values.values())
+            self.chance_consts = [
+                values >= self.offset_mask,
+                self.offset_mask >= chance[0] * self.b,
+                sum(self.b) >= n * chance[1],
+            ]
+        else:
+            self.chance_consts = None
+
+        self.cvar_term = cvar_term
+        self.obj = cp.Maximize(sum(node_value_list) - cvar_term)
 
     def get_problem(self):
         constraints = [
@@ -276,6 +330,9 @@ class Plant:
             *self.interstage_const_upper.values(),
             *self.interstage_const_lower.values(),
         ]
+
+        if self.chance_consts is not None:
+            constraints.extend(self.chance_consts)
 
         return cp.Problem(self.obj, constraints)
 
@@ -336,5 +393,60 @@ def main():
     #     print(f"{variable.name()}: {variable.value}")
 
 
+def main2():
+    stages = 6
+    variables = [
+        "crude_light_price",
+        "crude_heavy_price",
+        "prod_price_0",
+        "prod_price_1",
+        "prod_price_2",
+        "demand_0",
+        "demand_1",
+        "demand_2",
+    ]
+    root, all_nodes = random_walk_tree_builder(
+        variables,
+        [30, 20, 50, 20, 10, 400, 300, 200],
+        [1, 1, 1, 1, 1, 30, 30, 30],
+        [0, 0, 0, 0, 0, 60, 60, 60],
+        stages=stages,
+        branch_factor=5,
+        seed=42,
+        truncate_places=0,
+    )
+    print(f"Generated {len(all_nodes)} nodes")
+
+    crude_ratios = [
+        [0.7, 0.3],
+        [0.5, 0.5],
+        [0, 1],
+    ]  # light from [light,heavy]; medium from [light,heavy]; heavy from [light,heavy]
+    product_ratios = [
+        [0.7, 0.3, 0.0],  # Amount of light product from l/m/h intermediates
+        [0.2, 0.5, 0.2],  # Amount of medium product from l/m/h intermediates
+        [0.0, 0.3, 0.7],  # Amount of heavy product from l/m/h intermediates
+    ]
+
+    p = Plant(
+        crude_distil_cap=1000,
+        products=3,
+        crude_ratios=crude_ratios,
+        refine_caps=[1000, 1000, 1000],
+        product_ratios=np.array(product_ratios),
+        stages=stages,
+        scenario_tree_root=root,
+        scenario_tree_all_nodes=all_nodes,
+        allowed_output_change=20,
+        chance=(9000, 0.998),
+    )
+
+    problem = p.get_problem()
+    # print(problem)
+    # solver = cp.CLARABEL
+    result = problem.solve(verbose=True)
+
+
 if __name__ == "__main__":
-    main()
+    # main()
+    main2()
